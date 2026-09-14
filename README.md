@@ -32,9 +32,15 @@ login identity.
 | Language  | Python 3.10+                              |
 | Web       | FastAPI + Starlette `SessionMiddleware`   |
 | Templates | Jinja2 (server-rendered HTML)             |
-| DB        | SQLite (stdlib `sqlite3`, no ORM)         |
+| DB        | SQLite locally / **Turso (libSQL)** in prod — same SQL, no ORM |
 | Frontend  | One HTML page + ~60 lines of vanilla JS   |
-| Server    | uvicorn                                    |
+| Server    | uvicorn (local) / Vercel Functions (prod) |
+
+**Dual-mode database** (`db.py`): if `TURSO_DATABASE_URL` is set, the app talks
+to a hosted Turso/libSQL database over HTTP (`turso_serverless`, pure-Python
+DB-API); otherwise it uses a local `sqlite3` file. Both expose the same DB-API,
+so the data layer is identical. This is what makes serverless (Vercel) work —
+serverless has no persistent disk, so a local SQLite file cannot survive there.
 
 No SPA framework, no ORM, no auth library. At ~2k rows the whole table is sent to
 the browser and searched/sorted client-side — instant, no pagination.
@@ -161,6 +167,46 @@ uvicorn app:app --host 0.0.0.0 --port 8000
 The SQLite file is created automatically on first run (`DB_PATH`, default
 `inventory.db`). Load initial data via the **Import CSV** button in the admin bar.
 
+### Deploying to Vercel (with Turso)
+
+Vercel is serverless — it has **no persistent disk**, so the app must use Turso
+(hosted libSQL) instead of a local SQLite file. Setup, once:
+
+1. **Create the Turso database** (needs a free Turso account + the `turso` CLI):
+   ```bash
+   turso auth login
+   turso db create parts-inventory
+   turso db show --url parts-inventory        # -> TURSO_DATABASE_URL
+   turso db tokens create parts-inventory     # -> TURSO_AUTH_TOKEN
+   ```
+2. **Set env vars on Vercel** (Project → Settings → Environment Variables), or
+   via CLI:
+   ```bash
+   vercel env add TURSO_DATABASE_URL     # paste the libsql:// URL
+   vercel env add TURSO_AUTH_TOKEN       # paste the token
+   vercel env add ADMIN_PASSWORD         # the admin login password
+   vercel env add SECRET_KEY             # long random value, signs the cookie
+   ```
+3. **Deploy:**
+   ```bash
+   vercel            # preview
+   vercel --prod     # production
+   ```
+
+Vercel auto-detects the FastAPI `app` in `app.py` (zero-config); `vercel.json`
+only raises the function timeout to 60s so large CSV imports don't get cut off.
+Tables are created automatically on first request (`init_db()` is idempotent).
+
+**Load initial data:** after the first deploy, log in and use **Import CSV**, or
+seed the Turso DB directly from a machine with the env vars set:
+```bash
+export TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=...
+python -c "import db; db.init_db(); c=db.get_db(); print(db.import_csv(c, open('parts.csv').read()))"
+```
+
+> Any host with a persistent disk (Fly.io, a VPS, the homelab) can skip Turso
+> entirely and run the local-SQLite mode — leave `TURSO_DATABASE_URL` unset.
+
 ---
 
 ## 8. Tests
@@ -171,7 +217,9 @@ python test_db.py     # -> prints "ok"
 
 Covers the non-trivial logic: quantity coercion, the extras round-trip, and CSV
 import (insert, custom-field creation, blank/nameless-row handling, id-based
-upsert). No test framework — plain asserts.
+upsert). No test framework — plain asserts. Runs against the local SQLite path;
+the Turso driver (`turso_serverless`) exposes the same DB-API, so the same logic
+applies unchanged in production.
 
 ---
 
@@ -192,6 +240,7 @@ static/
 test_db.py           runnable checks for the data layer
 sample_parts.csv     example import file
 requirements.txt     pinned-ish deps
+vercel.json          Vercel function config (60s timeout for CSV import)
 .env.example         config template
 ```
 

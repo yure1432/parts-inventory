@@ -1,8 +1,18 @@
-"""SQLite data layer for the parts inventory.
+"""Data layer for the parts inventory.
 
 Core fields are real, typed columns. Admin-added ("custom") fields are stored
 per-row in the `extras` JSON blob and registered in the `custom_fields` table so
 every row shows a consistent set of columns.
+
+Dual-mode by design:
+  * If TURSO_DATABASE_URL is set  -> talk to Turso/libSQL over HTTP
+    (turso_serverless, pure-Python DB-API — required for serverless like Vercel,
+    which has no persistent disk for a local SQLite file).
+  * Otherwise                     -> stdlib sqlite3 against a local file
+    (zero-config local dev + tests, no cloud account needed).
+
+Both drivers expose the same DB-API surface (execute, executescript, lastrowid,
+`?` params, sqlite3.Row-style rows), so the rest of this file is driver-agnostic.
 """
 import csv
 import io
@@ -11,6 +21,8 @@ import os
 import sqlite3
 
 DB_PATH = os.environ.get("DB_PATH", "inventory.db")
+TURSO_URL = os.environ.get("TURSO_DATABASE_URL")
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
 # Core columns as (db_column, human_label). "user of part" -> part_user because
 # `user` is a reserved-ish word and confusing next to login users.
@@ -25,11 +37,16 @@ CORE_COLUMNS = [c for c, _ in CORE_FIELDS]
 
 
 def get_db():
+    if TURSO_URL:
+        import turso_serverless  # lazy: only needed in Turso mode
+        conn = turso_serverless.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+        conn.row_factory = turso_serverless.Row
+        # No PRAGMAs: Turso is a managed server, it handles concurrency itself.
+        return conn
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    # Concurrency: WAL lets readers run during a write; busy_timeout makes a
-    # blocked writer wait up to 5s instead of raising "database is locked".
-    # Plenty for a handful of internal admins editing at once.
+    # Local sqlite concurrency: WAL lets readers run during a write; busy_timeout
+    # makes a blocked writer wait up to 5s instead of raising "database is locked".
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
     return conn
