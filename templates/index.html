@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="toolbar">
+  <input type="search" id="search" placeholder="Search all fields…" autocomplete="off">
+  <span id="count" class="muted"></span>
+</div>
+
+{% if is_admin %}
+<div class="admin-bar">
+  <a class="btn" href="/parts/new">+ Add part</a>
+  <a class="btn" href="/export">Export CSV</a>
+
+  <form class="inline" method="post" action="/fields">
+    <input type="text" name="name" placeholder="New field name" required>
+    <button type="submit" class="btn">Add field</button>
+  </form>
+
+  <form class="inline" method="post" action="/import" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".csv,text/csv" required>
+    <button type="submit" class="btn">Import CSV</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="table-wrap">
+<table id="parts">
+  <thead>
+    <tr>
+      {% for col, label in core_fields %}<th data-key="{{ col }}">{{ label }}</th>{% endfor %}
+      {% for f in custom_fields %}<th data-key="extra">{{ f }}</th>{% endfor %}
+      {% if is_admin %}<th class="actions">Actions</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in parts %}
+    <tr>
+      <td>{{ p.name }}</td>
+      <td>{{ p.details }}</td>
+      <td>{{ p.location }}</td>
+      <td class="num">{{ p.quantity }}</td>
+      <td>{{ p.part_user }}</td>
+      {% for f in custom_fields %}<td>{{ p.extras[f] }}</td>{% endfor %}
+      {% if is_admin %}
+      <td class="actions">
+        <a href="/parts/{{ p.id }}/edit">Edit</a>
+        <form class="inline" method="post" action="/parts/{{ p.id }}/delete"
+              onsubmit="return confirm('Delete {{ p.name }}?')">
+          <button type="submit" class="link danger">Delete</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if not parts %}<p class="muted">No parts yet.{% if is_admin %} Add one or import a CSV.{% endif %}</p>{% endif %}
+
+<script src="/static/table.js"></script>
+{% endblock %}

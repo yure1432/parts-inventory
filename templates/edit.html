@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit" if part else "Add" }} part{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{{ "Edit part" if part else "Add part" }}</h1>
+  <form method="post" action="{{ '/parts/' ~ part.id if part else '/parts' }}">
+    <label>Name *
+      <input type="text" name="name" required value="{{ part.name if part else '' }}">
+    </label>
+    <label>Details
+      <textarea name="details" rows="3">{{ part.details if part else '' }}</textarea>
+    </label>
+    <label>Location
+      <input type="text" name="location" list="locations" value="{{ part.location if part else '' }}">
+      <datalist id="locations">
+        {% for loc in locations %}<option value="{{ loc }}">{% endfor %}
+      </datalist>
+    </label>
+    <label>Quantity
+      <input type="number" name="quantity" step="1" value="{{ part.quantity if part else 0 }}">
+    </label>
+    <label>User
+      <input type="text" name="part_user" value="{{ part.part_user if part else '' }}">
+    </label>
+
+    {% for f in custom_fields %}
+    <label>{{ f }}
+      <input type="text" name="extra_{{ f }}" value="{{ part.extras[f] if part else '' }}">
+    </label>
+    {% endfor %}
+
+    <div class="row">
+      <button type="submit" class="btn primary">Save</button>
+      <a href="/" class="btn">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
