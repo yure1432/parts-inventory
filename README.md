@@ -169,8 +169,23 @@ The SQLite file is created automatically on first run (`DB_PATH`, default
 
 ### Deploying to Vercel (with Turso)
 
+**Fastest path — the script does all of the below:**
+```bash
+# turso CLI must be installed first (review before running):
+#   curl -sSfL https://get.tur.so/install.sh | bash
+ADMIN_PASSWORD='your-password' ./deploy.sh
+# optional: also bulk-load a CSV into Turso after deploy
+ADMIN_PASSWORD='your-password' SEED_CSV=parts.csv ./deploy.sh
+```
+`deploy.sh` is idempotent: installs the Vercel CLI if missing, logs into Turso,
+creates the DB (or reuses it), mints a token, sets all Vercel env vars, and
+deploys to production. Re-run it anytime to redeploy. It never hardcodes secrets —
+`ADMIN_PASSWORD` comes from the environment or an interactive prompt, and
+`SECRET_KEY` is auto-generated once and reused across deploys.
+
 Vercel is serverless — it has **no persistent disk**, so the app must use Turso
-(hosted libSQL) instead of a local SQLite file. Setup, once:
+(hosted libSQL) instead of a local SQLite file. The manual steps the script
+automates, for reference:
 
 1. **Create the Turso database** (needs a free Turso account + the `turso` CLI):
    ```bash
