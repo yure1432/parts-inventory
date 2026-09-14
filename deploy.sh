@@ -22,6 +22,14 @@ die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 cd "$(dirname "$0")"
 
+# If URL + token are already supplied, skip the turso CLI entirely (e.g. you
+# created the DB in the web dashboard at app.turso.tech). NOTE: the AUR `turso`
+# package installs `tursodb`, the local DB engine — NOT the cloud CLI this needs.
+HAVE_TURSO_CREDS=0
+if [ -n "${TURSO_DATABASE_URL:-}" ] && [ -n "${TURSO_AUTH_TOKEN:-}" ]; then
+    HAVE_TURSO_CREDS=1
+fi
+
 # ---------------------------------------------------------------------------
 say "1/7  Checking CLIs"
 
@@ -32,37 +40,48 @@ fi
 command -v vercel >/dev/null 2>&1 || die "vercel still not on PATH after install"
 echo "vercel $(vercel --version)"
 
-if ! command -v turso >/dev/null 2>&1; then
-    die "turso CLI not found. Install it (review the script first):
-       curl -sSfL https://get.tur.so/install.sh | bash
-     then re-run this script."
+if [ "$HAVE_TURSO_CREDS" = 1 ]; then
+    echo "TURSO_DATABASE_URL + TURSO_AUTH_TOKEN already set — skipping turso CLI."
+elif ! command -v turso >/dev/null 2>&1; then
+    die "turso CLI not found (the cloud CLI, not the AUR 'tursodb' engine).
+     Either:
+       (A) create the DB at https://app.turso.tech and re-run with:
+             TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... ADMIN_PASSWORD=... ./deploy.sh
+       (B) install the real cloud CLI (review the script first):
+             curl -sSfL https://get.tur.so/install.sh | bash"
 fi
-echo "turso $(turso --version)"
 
 # ---------------------------------------------------------------------------
-say "2/7  Turso auth"
-if ! turso auth token >/dev/null 2>&1 && ! turso db list >/dev/null 2>&1; then
-    echo "Not logged in — opening browser login..."
-    turso auth login
-fi
-turso db list >/dev/null 2>&1 || die "Turso login failed"
-echo "Logged in to Turso."
-
-# ---------------------------------------------------------------------------
-say "3/7  Turso database '$DB_NAME'"
-if turso db list | awk '{print $1}' | grep -qx "$DB_NAME"; then
-    echo "Database already exists — reusing it."
+if [ "$HAVE_TURSO_CREDS" = 1 ]; then
+    say "2-4/7  Using provided Turso credentials"
+    echo "URL: $TURSO_DATABASE_URL"
+    echo "Token: (from environment, not printed)"
 else
-    turso db create "$DB_NAME"
-fi
+    echo "turso $(turso --version)"
 
-TURSO_DATABASE_URL="$(turso db show --url "$DB_NAME")"
-[ -n "$TURSO_DATABASE_URL" ] || die "could not get database URL"
-say "4/7  Minting auth token"
-TURSO_AUTH_TOKEN="$(turso db tokens create "$DB_NAME")"
-[ -n "$TURSO_AUTH_TOKEN" ] || die "could not create auth token"
-echo "URL: $TURSO_DATABASE_URL"
-echo "Token: (captured, not printed)"
+    say "2/7  Turso auth"
+    if ! turso auth token >/dev/null 2>&1 && ! turso db list >/dev/null 2>&1; then
+        echo "Not logged in — opening browser login..."
+        turso auth login
+    fi
+    turso db list >/dev/null 2>&1 || die "Turso login failed"
+    echo "Logged in to Turso."
+
+    say "3/7  Turso database '$DB_NAME'"
+    if turso db list | awk '{print $1}' | grep -qx "$DB_NAME"; then
+        echo "Database already exists — reusing it."
+    else
+        turso db create "$DB_NAME"
+    fi
+
+    TURSO_DATABASE_URL="$(turso db show --url "$DB_NAME")"
+    [ -n "$TURSO_DATABASE_URL" ] || die "could not get database URL"
+    say "4/7  Minting auth token"
+    TURSO_AUTH_TOKEN="$(turso db tokens create "$DB_NAME")"
+    [ -n "$TURSO_AUTH_TOKEN" ] || die "could not create auth token"
+    echo "URL: $TURSO_DATABASE_URL"
+    echo "Token: (captured, not printed)"
+fi
 
 # ---------------------------------------------------------------------------
 say "5/7  App secrets"
